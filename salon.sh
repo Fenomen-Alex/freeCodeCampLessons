@@ -1,85 +1,66 @@
 #!/bin/bash
 
-# Function to display services
-display_services() {
-    echo "~~~~~ MY SALON ~~~~~"
-    echo
-    echo "Welcome to My Salon, how can I help you?"
-    echo
+PSQL="psql --username=freecodecamp --dbname=salon --tuples-only -c"
 
-    # Retrieve services list from database and format it correctly
-    SERVICES=$(psql --username=freecodecamp --dbname=salon -t -c "SELECT service_id, name FROM services;")
+echo -e "\n~~~~~ MY SALON ~~~~~"
 
-    # Check if there are services to display
-    if [ -z "$SERVICES" ]; then
-        echo "No services available."
+MAIN_MENU() {
+  if [[ -z $1 ]]
+  then
+    MENU_TITLE="\nWelcome to My Salon, how can I help you?\n"
+  else
+    MENU_TITLE="\n$1"
+  fi
+
+  echo -e $MENU_TITLE
+
+  SERVICES_LIST=$($PSQL "SELECT service_id, name FROM services")
+  echo "$SERVICES_LIST" | while read SERVICEID BAR NAME
+  do
+    echo "$SERVICEID) $NAME"
+  done
+
+  read SERVICE_ID_SELECTED
+
+  SERVICE_NAME=$($PSQL "SELECT name FROM services WHERE service_id='$SERVICE_ID_SELECTED'")
+  if [[ -z $SERVICE_NAME ]]
+  then
+    MAIN_MENU "I could not find that service. What would you like today?"
+  else
+    echo -e "\nWhat's your phone number?"
+    read CUSTOMER_PHONE
+
+    CUSTOMER_ID=$($PSQL "SELECT customer_id FROM customers WHERE phone='$CUSTOMER_PHONE'")
+    if [[ -z $CUSTOMER_ID ]]
+    then
+      echo -e "\nI don't have a record for that phone number, what's your name?"
+      read CUSTOMER_NAME
+
+      INSERT_CUST_RECORD=$($PSQL "INSERT INTO customers(phone, name) VALUES('$CUSTOMER_PHONE', '$CUSTOMER_NAME')")
+      if [[ $INSERT_CUST_RECORD == "INSERT 0 1" ]]
+      then
+        CUSTOMER_ID=$($PSQL "SELECT customer_id FROM customers WHERE phone='$CUSTOMER_PHONE'")
+        echo -e "\nWhat time would you like your $(echo $SERVICE_NAME | sed 's/ //g'), $CUSTOMER_NAME?"
+        read SERVICE_TIME
+
+        INSERT_APPOINTMENT=$($PSQL "INSERT INTO appointments(customer_id, service_id, time) VALUES($CUSTOMER_ID, $SERVICE_ID_SELECTED, '$SERVICE_TIME')")
+        if [[ $INSERT_APPOINTMENT == "INSERT 0 1" ]]
+        then
+          echo -e "\nI have put you down for a $(echo $SERVICE_NAME | sed 's/ //g') at $SERVICE_TIME, $CUSTOMER_NAME."
+        fi
+      fi
     else
-        # Read each line of the result and display services in a numbered list format
-        while IFS='|' read -r SERVICE_ID SERVICE_NAME; do
-            echo "${SERVICE_ID}) ${SERVICE_NAME}"
-        done <<< "$SERVICES"
+      GET_CUSTOMER_NAME=$($PSQL "SELECT name FROM customers WHERE customer_id='$CUSTOMER_ID'")
+      echo -e "\nWhat time would you like your $(echo $SERVICE_NAME | sed 's/ //g'), $(echo $GET_CUSTOMER_NAME | sed 's/ //g')?"
+      read SERVICE_TIME
+
+      INSERT_APPOINTMENT=$($PSQL "INSERT INTO appointments(customer_id, service_id, time) VALUES($CUSTOMER_ID, $SERVICE_ID_SELECTED, '$SERVICE_TIME')")
+      if [[ $INSERT_APPOINTMENT == "INSERT 0 1" ]]
+      then
+        echo -e "\nI have put you down for a $(echo $SERVICE_NAME | sed 's/ //g') at $SERVICE_TIME, $(echo $GET_CUSTOMER_NAME | sed 's/ //g')."
+      fi
     fi
-
-    echo
+  fi
 }
 
-# Function to check if a service exists
-service_exists() {
-    SERVICE_ID=$1
-    COUNT=$(psql --username=freecodecamp --dbname=salon -t -c "SELECT COUNT(*) FROM services WHERE service_id = $SERVICE_ID;")
-    echo $COUNT
-}
-
-# Function to insert a new customer
-insert_customer() {
-    CUSTOMER_PHONE=$1
-    CUSTOMER_NAME=$2
-    psql --username=freecodecamp --dbname=salon -c "INSERT INTO customers (phone, name) VALUES ('$CUSTOMER_PHONE', '$CUSTOMER_NAME');"
-}
-
-# Main script
-
-# Display available services
-display_services
-
-# Prompt for service input
-while true; do
-    read -p "Enter the service number you would like: " SERVICE_ID_SELECTED
-    
-    # Validate if service_id exists
-    SERVICE_EXISTS=$(service_exists $SERVICE_ID_SELECTED)
-    
-    if [ "$SERVICE_EXISTS" -eq 0 ]; then
-        echo "I could not find that service. Please choose from the list."
-        display_services
-    else
-        break
-    fi
-done
-
-# Prompt for phone number
-read -p "What's your phone number? " CUSTOMER_PHONE
-
-# Check if customer exists
-CUSTOMER_ID=$(psql --username=freecodecamp --dbname=salon -t -c "SELECT customer_id FROM customers WHERE phone = '$CUSTOMER_PHONE';")
-
-# If customer doesn't exist, prompt for name and insert into database
-if [ -z "$CUSTOMER_ID" ]; then
-    read -p "I don't have a record for that phone number, what's your name? " CUSTOMER_NAME
-    insert_customer $CUSTOMER_PHONE "$CUSTOMER_NAME"
-    CUSTOMER_ID=$(psql --username=freecodecamp --dbname=salon -t -c "SELECT customer_id FROM customers WHERE phone = '$CUSTOMER_PHONE';")
-else
-    CUSTOMER_NAME=$(psql --username=freecodecamp --dbname=salon -t -c "SELECT name FROM customers WHERE phone = '$CUSTOMER_PHONE';")
-fi
-
-# Prompt for appointment time
-read -p "What time would you like your $(psql --username=freecodecamp --dbname=salon -t -c "SELECT name FROM services WHERE service_id = $SERVICE_ID_SELECTED;"), $CUSTOMER_NAME? " SERVICE_TIME
-
-# Insert appointment into database
-psql --username=freecodecamp --dbname=salon -c "INSERT INTO appointments (customer_id, service_id, time) VALUES ($CUSTOMER_ID, $SERVICE_ID_SELECTED, '$SERVICE_TIME');"
-
-# Output confirmation message
-SERVICE_NAME=$(psql --username=freecodecamp --dbname=salon -t -c "SELECT name FROM services WHERE service_id = $SERVICE_ID_SELECTED;")
-echo
-echo "I have put you down for a $SERVICE_NAME at $SERVICE_TIME, $CUSTOMER_NAME."
-echo
+MAIN_MENU
